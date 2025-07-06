@@ -1,0 +1,16 @@
+.idea/
+cover.out
+coverage.html
+
+# don't accidentally data
+input/*
+output/*
+
+# build
+main
+main.py
+hack
+
+# top level files
+main.go
+main_test.go
