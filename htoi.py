@@ -29,10 +29,14 @@ if __name__ == "__main__":
     else:
         print("Please insert your hexidecimal value. \\n to convert, ^C or empty input to exit: ")
         while 1:
-            i = input("> ")
-            if not i:
-                exit(0)
             try:
-                print(hex_to_dec(i))
-            except ValueError:
-                print("input not hexadecimal")
+                i = input("htoi > ")
+                if not i:
+                    exit(0)
+                try:
+                    print(hex_to_dec(i))
+                except ValueError:
+                    print("input not hexadecimal")
+            # catch ^c, clean exit
+            except KeyboardInterrupt:
+                exit(0)

@@ -18,11 +18,14 @@ if __name__ == "__main__":
         # consider interactive input
         print("Please insert your decimal value. \\n to convert, ^C or empty input to exit: ")
         while 1:
-            i = input("> ")
-            if not i:
-                exit(0)
             try:
-                print(dec_to_hex(i))
-            except ValueError:
-                print("input not integer")
-
+                i = input("itoh > ")
+                if not i:
+                    exit(0)
+                try:
+                    print(dec_to_hex(i))
+                except ValueError:
+                    print("input not integer")
+            # catch ^c, clean exit
+            except KeyboardInterrupt:
+                exit(0)
