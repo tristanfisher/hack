@@ -1,8 +1,9 @@
 .idea/
 cover.out
 coverage.html
+debug.log
 
-# don't accidentally data
+# don't accidentally share data
 input/*
 output/*
 
