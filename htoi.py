@@ -5,15 +5,14 @@ from typing import Optional
 # notes on ncurses: clear() will reset a window position, not just clear contents
 # other notes:
 # - we probably could have done without the input window complexity, instead just redrawing the prompt on current main line
-# - audit usage of window refreshes, consider fewer
-# - naming clear() operations
 # known bugs:
 # - input stops tracking line number correctly when we go into our scroll buffer
 # - crash expanding out of a 0 height window
-# - resizing from cursor 0 to size 3 will crash with no input
-# - resizing from cursor 0 to cursor 1 with input will crash
+# - resizing from small screens:
+#       - resizing from cursor 0 to size 3 will "crash" (caught) with no input
+#       - resizing from cursor 0 to cursor 1 with input will "crash" (caught)
+#   this is likely related to the result expanding beyond getmaxyx() bounds
 # - handling around multiple lines of output
-# - up arrow will leave cursor in output from main_window
 RESIZE_ORD = 410 # fires in my iterm2 + tmux when resizing a window
 
 EOF_CHORD = 4 # ^d
@@ -239,6 +238,7 @@ class Htoi:
         # we subwindow on main_y and prompt chars offset.  we track these values to
         # move the input_window dynamically along with our prompt
         self.input_window = main_window.subwin(1, 0, main_y , len(self.prompt))
+        self.input_window.scrollok(True) # don't crash when exceeding max (e.g. X axis on small width)
         self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
         self.input_window.refresh()
         self.input_window.bkgd(2)
