@@ -158,7 +158,6 @@ class Htoi:
                 self.debug and self.log("[EXCEPTION] failed to move result window to [y,x] [{}, {}]".format(self.result_window_pos_y, len(self.prompt)))
 
 
-
     # result_window_set_invalid_input_error clears any existing error, writes a new error, and preserves the
     # window's location from the last char input
     def result_window_set_invalid_input_error(self, i, i_chr):
@@ -180,9 +179,6 @@ class Htoi:
         self.result_window.bkgd(' ')
         self.result_window.clear()
         self.debug and self.log("cleared result window".format(self.result_window_pos_y, 0))
-        # move to correct line.  we don't care about X position
-        # result_window_set_relative_cursor handles changes result_window_pos_y and moves the result window
-        # self.result_window_set_relative_cursor()
         self.result_window.refresh()
 
     @staticmethod
@@ -194,6 +190,7 @@ class Htoi:
     def report_positions(self):
         main_max_y, main_max_x = self.main_window.getmaxyx()
         ic_my, ic_mx = self.input_window.getmaxyx()
+        # max y for result_window is a function of main_max_y
         _, rw_mx = self.result_window.getmaxyx()
 
         # max, cursor formatted for sake of fixed width / log alignment
@@ -246,7 +243,7 @@ class Htoi:
         self.input_window.refresh()
         self.input_window.bkgd(2)
 
-        # create a subwindow for error feedback
+        # create a subwindow for error feedback and results
         # single height, no columns.  transparent with no input. after we get the cursor position, we can move this.
         # if ever the result is moved to the bottom of the screen, remember to leave a row+1 for newline, a column+1 for the cursor
         self.result_window = main_window.subwin(1, 0, 0, 0) # moved when painting results.  initialized at 0,0
@@ -337,7 +334,7 @@ class Htoi:
 
 
                 # KEY_ENTER is some numeric keyboards
-                # macos sends a \lf with the <return> key
+                # macOS sends a \lf with the <return> key
                 # treat these as their numeric inputs (no ord)
                 if i == curses.KEY_ENTER or i == KEY_ENTER:
                     self.result_window.leaveok(True) # needed?
@@ -345,10 +342,10 @@ class Htoi:
                     if len(self.error) > 0:
                         self.error = ""
                         # clear window contents and refresh to update it
-                        self.debug and self.log("updating error window")
+                        self.debug and self.log("updating clearing error from result window")
                         # if we previously had an error, the result window will have a background used for errors
                         self.result_window_wipe()
-                        # do not clear any other windows                        # now continue -- this is dismissing the error
+                        # do not clear any other windows, this is dismissing the error only
                         continue
 
                     # just ignore errant or idle return presses
@@ -449,11 +446,13 @@ class Htoi:
 
 if __name__ == "__main__":
     import sys
+    import argparse
 
-
-    # TODO: take in flag for debug to dump traces and other detail
-    debugSetting = True
-    htoi = Htoi(debug=debugSetting)
+    parser = argparse.ArgumentParser("htoi")
+    # parser.add_argument("--debug", help="enable debug logging and visual indicators in interactive mode", type=bool, action='store_true')
+    parser.add_argument("--debug", help="enable debug logging and visual indicators in interactive mode", action='store_true')
+    parser.add_argument("stdin_data", help="position argument to convert, skipping interactive mode", action="store", type=str, nargs="?")
+    args = parser.parse_args()
 
     # note for modification
     # if using zsh or fsh and you see an inverse+bold % at the end of output
@@ -461,9 +460,11 @@ if __name__ == "__main__":
 
     # if we received positional args
     # arguments are already treated as strings for input
-    if len(sys.argv) > 1:
-        print(hex_to_dec(sys.argv[1]))
+    if args.stdin_data and len(args.stdin_data) > 0:
+        print(hex_to_dec(args.stdin_data))
     else:
+        htoi = Htoi(debug=args.debug)
+
         try:
             import curses
             # curses is imported to support up arrow input
