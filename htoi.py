@@ -70,7 +70,6 @@ class Htoi:
         self.main_max_x = 0
         self.main_cursor_y = 0
         self.main_cursor_x = 0
-        self.main_window: Optional["curses._CursesWindow"] = None  # window bound in main
 
         # input_window_pos tracks the desired window position, not the cursor
         self.input_window_pos_y = 0
@@ -102,35 +101,32 @@ class Htoi:
     # input_window_set_relative_cursor moves a cursor for the input window relative to main window cursor subwindow
     # self.input_window.getparyx() (get parent yx) should report where parent cursor is, but it's tracking self.input_window
     # it's possible that there's a window sync command that simplifies this whole process of tracking the main position with
-    def input_window_move(self, y, x=0):
+    def input_window_move(self, y=None, x=0):
+        # if not y:
+        #     y = self.input_window_pos_y
+
         # we want to track our input_window alongside the prompt window
-        self.input_window_pos_y = y
+        # self.input_window_pos_y = y
         # self.input_cursor_x = self.main_cursor_x # floats to the end of the prompt
-        self.debug and self.log("{} [y,x] [{}, {}]".format("moving input window position to:", y, x))
         try:
+            self.debug and self.log("{} [y,x] [{}, {}]".format("moving input window position to:", y, x))
             self.input_window.mvwin(self.input_window_pos_y, len(self.prompt))  # this line breaks going from 0 back up
         except:
             self.debug and self.log("[EXCEPTION] failed to move input window to [y,x] [{}, {}]".format(y, len(self.prompt)))
         self.input_window.refresh()
 
-
-    def input_window_replace(self, contents, y=None, x=None):
-        if not y:
-            pos = self.input_window_pos_y
-
+    def input_window_replace(self, contents):
         self.debug and self.log("replacing input window with contents: {}".format(contents))
-        self.input_window.clear()
-        self.input_window_move(y, x)
+        self.input_window_wipe()
         self.input_window.addstr(contents)
         self.input_window.refresh()
 
-    def input_window_clear(self, y=None, x=None):
+    # wipe clears an input window and refreshes
+    def input_window_wipe(self):
         if not self.input_window:
             self.debug and self.log("attempted to clear null input_window")
             return
-        self.input_window.bkgd(' ')
         self.input_window.clear()
-        self.input_window_move(y, x)
         self.debug and self.log("cleared input window and moved to coordinates [y,x]: [{}, {}]".format(self.result_cursor_y, 0))
         self.input_window.refresh()
 
@@ -171,7 +167,7 @@ class Htoi:
     # result_window_set_invalid_input_error clears any existing error, writes a new error, and preserves the
     # window's location from the last char input
     def result_window_set_invalid_input_error(self, i, i_chr):
-        self.result_window_clear()
+        self.result_window_wipe()
         self.result_window.bkgd(' ', curses.color_pair(1))
         # the result_window has been moved for us into position already by result_window_clear(
         self.error = "input not valid hexadecimal character. ord: {o} chr: {c}".format(o=i, c=i_chr)
@@ -180,7 +176,7 @@ class Htoi:
 
     # result_window_clear clears any existing result and preserves the window's last location
     # from the last char input
-    def result_window_clear(self):
+    def result_window_wipe(self):
         if not self.result_window:
             self.debug and self.log("attempted to clear null result_window")
             return
@@ -217,9 +213,7 @@ class Htoi:
     # type annotation used for IDE hints
     def main(self, main_window: "curses._CursesWindow") -> None:
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
-        curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_WHITE)
-
-        self.main_window = main_window
+        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
         main_window.clear()
         main_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
@@ -246,7 +240,6 @@ class Htoi:
         # move the input_window dynamically along with our prompt
         self.input_window_pos_y = main_y
         self.input_window_pos_x = len(self.prompt)
-        # 16-jul
         self.input_window = main_window.subwin(1, 0, self.input_window_pos_y , self.input_window_pos_x)
         self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
         self.input_window.refresh()
@@ -261,16 +254,11 @@ class Htoi:
         self.result_window.scrollok(True)
         # note that any addstr() will set cursor position to the following x+1 position for a given y
 
-        self.report_positions()
-        self.log(">>>> self.main_cursor_y {}".format(self.main_cursor_y))
+        self.debug and self.input_window.bkgd(' ', curses.color_pair(2))
 
-        # self.input_window_move(self.main_cursor_y)
-        # self.result_window_move()
-
-        self.debug and self.log("window initialized")
+        self.debug and self.log("### window initialized ###")
         while True:
             self.debug and self.log("looping for input")
-            self.debug and self.report_positions()
 
             # we get the maximum positions on each loop to handle window resizing and placement
             self.main_cursor_y, self.main_cursor_x = main_window.getyx()
@@ -283,13 +271,7 @@ class Htoi:
             # the Y coordinate will be 0 unless the contents of the result window are multiple lines
             # this is not the global position on screen
             self.result_cursor_y, self.result_cursor_x = self.result_window.getyx()
-
-            # note that our input window is moved by selective actions, such
-
-            # update our cursor location per loop to keep input window
-            # synced with the prompt
-            # self.input_window_set_relative_cursor()
-            # self.input_window_set_relative_cursor(self.main_cursor_y, len(self.prompt))
+            self.debug and self.report_positions()
 
             try:
                 # loop for next input
@@ -315,7 +297,7 @@ class Htoi:
                     # stomp on the result return
                     self.result_window_move()
                     # result not valid anymore
-                    self.result_window_clear()
+                    self.result_window_wipe()
                     self.input_window_replace(self.current_input)
                     continue
 
@@ -340,7 +322,7 @@ class Htoi:
                     self.input_window_replace(self.current_input)
 
                     # if we previously had an error, the result window will have a background used for errors
-                    self.result_window_clear()
+                    self.result_window_wipe()
                     # if we send an empty string, we'll get back an error
                     self.result_window_move()
                     result = ""
@@ -368,7 +350,7 @@ class Htoi:
                         # clear window contents and refresh to update it
                         self.debug and self.log("updating error window")
                         # if we previously had an error, the result window will have a background used for errors
-                        self.result_window_clear()
+                        self.result_window_wipe()
                         # do not clear any other windows
                         # now continue -- this is dismissing the error
                         continue
@@ -408,7 +390,6 @@ class Htoi:
                     self.last_input = self.current_input
                     self.current_input = ""
 
-
                     # redraw prompt by moving main window line
                     main_window.addstr("\n")
                     main_window.addstr(self.prompt)
@@ -418,11 +399,10 @@ class Htoi:
                     # main_window.refresh() to redraw our prompt for input
                     main_window.refresh()
 
-                    # now move input box.  we leave the last input box around to show the
-                    # user input for the result
-                    # self.input_window_move(self.main_cursor_y, 0)
-                    # self.input_window_move(1, 0)
-
+                    # now move input box, clearing out any contents first
+                    self.input_window_wipe()
+                    self.input_window_move(self.main_cursor_y, 0)
+                    self.input_window.refresh()
                     self.debug and self.log("result recorded, input window adjusted for new input")
                     continue
 
@@ -437,7 +417,7 @@ class Htoi:
                     # if we previously had an error, the result window will have a background used for errors
                     if len(self.error) > 0:
                         self.error = ""
-                        self.result_window_clear()
+                        self.result_window_wipe()
 
                     # output to prompt line and add user input to existing current_input
                     self.current_input += i_chr
@@ -446,7 +426,7 @@ class Htoi:
                     # move the result window to make sure we're not stomping on main's output
                     # then clean our current output buffer
                     self.result_window_move()
-                    self.result_window_clear()
+                    self.result_window_wipe()
                     # show hex for current input
                     # when user hits save, this result will get preserved in the main window,
                     # but for now, we live update the workspace
