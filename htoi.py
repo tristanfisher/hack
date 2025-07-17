@@ -8,6 +8,7 @@ from typing import Optional
 # - audit usage of window refreshes, consider fewer
 # - naming clear() operations
 # known bugs:
+# - input stops tracking line number correctly when we go into our scroll buffer
 # - crash expanding out of a 0 height window
 # - resizing from cursor 0 to size 3 will crash with no input
 # - resizing from cursor 0 to cursor 1 with input will crash
@@ -66,14 +67,11 @@ class Htoi:
         self.debug=debug
         self.prompt = ""
         self.prompt_suffix = "htoi > "
-        self.main_max_y = 0
-        self.main_max_x = 0
+
         self.main_cursor_y = 0
         self.main_cursor_x = 0
+        self.main_window: Optional["curses._CursesWindow"] = None  # window bound in main
 
-        # input_window_pos tracks the desired window position, not the cursor
-        self.input_window_pos_y = 0
-        self.input_window_pos_x = 0
         self.input_cursor_y = 0
         self.input_cursor_x = 0
         # type annotation used for IDE hints
@@ -96,21 +94,17 @@ class Htoi:
         # for cheaply checking error status instead of dealing with a window object
         self.error = ""
         # once we hit the window max Y limit, we're no longer able to calculate this based on cursor position
-        self.line_index = 0
+        self.input_line_index = 0
 
     # input_window_set_relative_cursor moves a cursor for the input window relative to main window cursor subwindow
     # self.input_window.getparyx() (get parent yx) should report where parent cursor is, but it's tracking self.input_window
     # it's possible that there's a window sync command that simplifies this whole process of tracking the main position with
-    def input_window_move(self, y=None, x=0):
-        # if not y:
-        #     y = self.input_window_pos_y
-
+    def input_window_move(self, y, x=0):
         # we want to track our input_window alongside the prompt window
-        # self.input_window_pos_y = y
         # self.input_cursor_x = self.main_cursor_x # floats to the end of the prompt
         try:
             self.debug and self.log("{} [y,x] [{}, {}]".format("moving input window position to:", y, x))
-            self.input_window.mvwin(self.input_window_pos_y, len(self.prompt))  # this line breaks going from 0 back up
+            self.input_window.mvwin(y, len(self.prompt))  # this line breaks going from 0 back up
         except:
             self.debug and self.log("[EXCEPTION] failed to move input window to [y,x] [{}, {}]".format(y, len(self.prompt)))
         self.input_window.refresh()
@@ -136,31 +130,32 @@ class Htoi:
     # if we have a height of 1, allow result line to output over prompt
     #
     def result_window_move(self):
-            if self.main_cursor_y + 1 < self.main_max_y:
-                self.result_window_pos_y = self.main_cursor_y + 1
 
-                # if max is y=2 and cursor will move to y=1, this crashes without being guarded
-                # if self.max_y == 2:
-                #     new_y = 1
+        main_max_y, _ = self.main_window.getmaxyx()
 
-                # current line + 1, start of line
-                self.debug and self.log("{} [y,x] [{}, {}]".format("moving result window to:", self.result_window_pos_y, 0))
-                try:
-                    self.result_window.mvwin(self.result_window_pos_y, 0)  # this line crashes when scaling up from y height=0
-                except:
-                    self.debug and self.log("[EXCEPTION] failed to move result window to [y,x] [{}, {}]".format(self.result_window_pos_y, len(self.prompt)))
-            else:
-                self.result_window_pos_y = self.main_max_y - 1
-                # this condition will be hit if the result window is moved before
-                if self.result_window_pos_y < 0:
-                    self.result_window_pos_y = 0
+        if self.main_cursor_y + 1 < main_max_y:
+            self.result_window_pos_y = self.main_cursor_y + 1
+            # if max is y=2 and cursor will move to y=1, this crashes without being guarded
+            # if self.max_y == 2:
+            #     new_y = 1
+            # current line + 1, start of line
+            self.debug and self.log("{} [y,x] [{}, {}]".format("moving result window to:", self.result_window_pos_y, 0))
+            try:
+                self.result_window.mvwin(self.result_window_pos_y, 0)  # this line crashes when scaling up from y height=0
+            except:
+                self.debug and self.log("[EXCEPTION] failed to move result window to [y,x] [{}, {}]".format(self.result_window_pos_y, len(self.prompt)))
+        else:
+            self.result_window_pos_y = main_max_y - 1
+            # this condition will be hit if the result window is moved before
+            if self.result_window_pos_y < 0:
+                self.result_window_pos_y = 0
 
-                self.debug and self.log("{} [y,x] [{}, {}]".format("[small screen] moving result window to: ", self.result_window_pos_y , 0))
-                # there will be no room for the confirmed result, but max_y -1 will keep the result within the bounds as we scale down
-                try:
-                    self.result_window.mvwin(self.result_window_pos_y, 0)
-                except:
-                    self.debug and self.log("[EXCEPTION] failed to move result window to [y,x] [{}, {}]".format(self.result_window_pos_y, len(self.prompt)))
+            self.debug and self.log("{} [y,x] [{}, {}]".format("[small screen] moving result window to: ", self.result_window_pos_y , 0))
+            # there will be no room for the confirmed result, but max_y -1 will keep the result within the bounds as we scale down
+            try:
+                self.result_window.mvwin(self.result_window_pos_y, 0)
+            except:
+                self.debug and self.log("[EXCEPTION] failed to move result window to [y,x] [{}, {}]".format(self.result_window_pos_y, len(self.prompt)))
 
 
 
@@ -197,16 +192,17 @@ class Htoi:
             f.write("[{timeMarker}] {msg}\n".format(timeMarker=time_marker, msg=message))
 
     def report_positions(self):
+        main_max_y, main_max_x = self.main_window.getmaxyx()
         ic_my, ic_mx = self.input_window.getmaxyx()
         _, rw_mx = self.result_window.getmaxyx()
 
         # max, cursor formatted for sake of fixed width / log alignment
-        self.debug and self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("MAIN: max", self.main_max_y, self.main_max_x, self.main_cursor_y, self.main_cursor_x))
+        self.debug and self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("MAIN: max", main_max_y, main_max_x, self.main_cursor_y, self.main_cursor_x))
 
         self.debug and self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("RESULT: max", self.result_window_pos_y , rw_mx, self.result_cursor_y, self.result_cursor_x))
 
         self.debug and self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}] pos: [{}, {}]".format(
-            "INPUT: max", ic_my, ic_mx, self.input_cursor_y, self.input_cursor_x, self.input_window_pos_y, self.input_window_pos_x)),
+            "INPUT: max", ic_my, ic_mx, self.input_cursor_y, self.input_cursor_x, self.main_cursor_y, self.main_cursor_x)),
 
 
     # curses import does not include underscored name
@@ -215,16 +211,23 @@ class Htoi:
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
+        # main_window is bound for access to cursor and max positions
+        self.main_window = main_window
         main_window.clear()
         main_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
         main_window.scrollok(True) # don't crash when we hit the bottom of the window
         main_window.addstr(self.welcome_prompt)
 
         self.main_cursor_y, self.main_cursor_x = main_window.getyx()
-        self.line_index += self.main_cursor_y
 
-        self.prompt = self.main_cursor_y
-        self.prompt = "{} {}".format(self.line_index, self.prompt_suffix)
+        # TODO: there is a bug here in counting line index as the cursor stops advancing when
+        #       we hit the bottom of the scroll
+        # set the input_line_index to where we can start accepting input
+        # the input_line_index does not track with cursor as result gets painted after the prompt/input
+        self.input_line_index += self.main_cursor_y
+        self.prompt = "{} {}".format(self.input_line_index, self.prompt_suffix)
+
+        # note that any addstr() will set cursor position to the following x+1 position for a given y
         main_window.addstr(self.prompt) # prompt belongs to main window, user input goes to input_window
         main_window.leaveok(True) # the user doesn't interact with main
         main_window.refresh()
@@ -238,9 +241,7 @@ class Htoi:
         main_y, _ = main_window.getyx()
         # we subwindow on main_y and prompt chars offset.  we track these values to
         # move the input_window dynamically along with our prompt
-        self.input_window_pos_y = main_y
-        self.input_window_pos_x = len(self.prompt)
-        self.input_window = main_window.subwin(1, 0, self.input_window_pos_y , self.input_window_pos_x)
+        self.input_window = main_window.subwin(1, 0, main_y , len(self.prompt))
         self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
         self.input_window.refresh()
         self.input_window.bkgd(2)
@@ -252,7 +253,6 @@ class Htoi:
         self.result_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
         self.result_window.leaveok(True) # leaveok prevents the cursor from jumping to window after write. see also: curses.filter() before initscr()
         self.result_window.scrollok(True)
-        # note that any addstr() will set cursor position to the following x+1 position for a given y
 
         self.debug and self.input_window.bkgd(' ', curses.color_pair(2))
 
@@ -262,7 +262,6 @@ class Htoi:
 
             # we get the maximum positions on each loop to handle window resizing and placement
             self.main_cursor_y, self.main_cursor_x = main_window.getyx()
-            self.main_max_y, self.main_max_x = main_window.getmaxyx()
 
             # the Y coordinate will be 0 unless the contents of the input window are multiple lines
             # this is not the global position on screen
@@ -323,15 +322,13 @@ class Htoi:
 
                     # if we previously had an error, the result window will have a background used for errors
                     self.result_window_wipe()
-                    # if we send an empty string, we'll get back an error
                     self.result_window_move()
+                    # if we send an empty string to addstr, we'll get back an error
                     result = ""
                     if len(self.current_input) > 0:
                         result = hex_to_dec_str(self.current_input)
-                        self.result_window.addstr(0,0, hex_to_dec_str(self.current_input))
+                        self.result_window.addstr(0,0, result)
 
-                    # result = hex_to_dec_str(self.current_input)
-                    # self.result_window.addstr(hex_to_dec_str(self.current_input))
                     self.debug and self.log("wrote result after backspace: " + result)
 
                     self.result_window.refresh()
@@ -351,17 +348,18 @@ class Htoi:
                         self.debug and self.log("updating error window")
                         # if we previously had an error, the result window will have a background used for errors
                         self.result_window_wipe()
-                        # do not clear any other windows
-                        # now continue -- this is dismissing the error
+                        # do not clear any other windows                        # now continue -- this is dismissing the error
                         continue
 
                     # just ignore errant or idle return presses
                     if self.current_input.strip() == "":
                         continue
 
-                    # we're drawing a new line, update line counter in prompt
-                    self.line_index += 1
-                    self.prompt = "{} {}".format(self.line_index, self.prompt_suffix)
+                    # TODO:
+                    #   we're drawing a new line, update input line counter in prompt
+                    #   note that this starts failing when we hit the bottom of the window
+                    self.input_line_index += 1
+                    self.prompt = "{} {}".format(self.input_line_index, self.prompt_suffix)
 
                     # write the input that was entered into the main_window to mimic
                     # preserving the input window. we use the input window only for active input
@@ -385,8 +383,7 @@ class Htoi:
                     #  [ live updating results]
                     main_window.addstr(result, curses.A_STANDOUT)
 
-                    # with output provided, now store last result
-                    # for recall
+                    # with output provided, now store last result for recall
                     self.last_input = self.current_input
                     self.current_input = ""
 
@@ -427,17 +424,16 @@ class Htoi:
                     # then clean our current output buffer
                     self.result_window_move()
                     self.result_window_wipe()
-                    # show hex for current input
-                    # when user hits save, this result will get preserved in the main window,
-                    # but for now, we live update the workspace
+
                     result = hex_to_dec_str(self.current_input)
                     self.result_window.addstr(hex_to_dec_str(self.current_input))
                     self.debug and self.log("wrote result: " + result)
                     # self.result_window.refresh() required to paint real-time conversion result
                     self.result_window.refresh()
 
-            # catch ^c and ^d, clean exit
+            # catch ^c and EOF, clean exit
             except (KeyboardInterrupt, EOFError):
+                curses.endwin()
                 print("exception caught")
                 return
 
@@ -459,7 +455,6 @@ if __name__ == "__main__":
     debugSetting = True
     htoi = Htoi(debug=debugSetting)
 
-
     # note for modification
     # if using zsh or fsh and you see an inverse+bold % at the end of output
     # a "partial line" was written or output without a newline
@@ -475,7 +470,6 @@ if __name__ == "__main__":
             stdscr = curses.initscr()
             curses.start_color()
             stdscr.keypad(True) # detect special chars like key-up, otherwise key-up looks like 'A'
-
             # wrapper handles noecho, cbreak, keypad
             curses.wrapper(htoi.main)
         except curses.error as e:
