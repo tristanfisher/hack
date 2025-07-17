@@ -102,9 +102,9 @@ class Htoi:
         # self.input_cursor_x = self.main_cursor_x # floats to the end of the prompt
         try:
             self.debug and self.log("{} [y,x] [{}, {}]".format("moving input window position to:", y, x))
-            self.input_window.mvwin(y, len(self.prompt))  # this line breaks going from 0 back up
+            self.input_window.mvwin(y, x)  # this line breaks going from 0 back up
         except:
-            self.debug and self.log("[EXCEPTION] failed to move input window to [y,x] [{}, {}]".format(y, len(self.prompt)))
+            self.debug and self.log("[EXCEPTION] failed to move input window to [y,x] [{}, {}]".format(y, x))
         self.input_window.refresh()
 
     def input_window_replace(self, contents):
@@ -394,7 +394,7 @@ class Htoi:
 
                     # now move input box, clearing out any contents first
                     self.input_window_wipe()
-                    self.input_window_move(self.main_cursor_y, 0)
+                    self.input_window_move(self.main_cursor_y, len(self.prompt))
                     self.input_window.refresh()
                     self.debug and self.log("result recorded, input window adjusted for new input")
                     continue
