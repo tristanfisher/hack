@@ -175,7 +175,7 @@ class Htoi:
         self.result_window.bkgd(' ', curses.color_pair(1))
         # the result_window has been moved for us into position already by result_window_clear(
         self.error = "input not valid hexadecimal character. ord: {o} chr: {c}".format(o=i, c=i_chr)
-        self.result_window.addstr(0, 0, self.error)
+        self.result_window.addstr(self.error)
         self.result_window.refresh()
 
     # result_window_clear clears any existing result and preserves the window's last location
@@ -431,6 +431,7 @@ class Htoi:
                 i_chr = chr(i)
 
                 if not is_hex(i_chr):
+                    self.result_window_move()
                     self.result_window_set_invalid_input_error(i, i_chr)
                 else:
                     # if we previously had an error, the result window will have a background used for errors
