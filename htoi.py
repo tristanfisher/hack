@@ -12,7 +12,6 @@ from typing import Optional
 #       - resizing from cursor 0 to size 3 will "crash" (caught) with no input
 #       - resizing from cursor 0 to cursor 1 with input will "crash" (caught)
 #   this is likely related to the result expanding beyond getmaxyx() bounds
-# - handling around multiple lines of output
 RESIZE_ORD = 410 # fires in my iterm2 + tmux when resizing a window
 
 EOF_CHORD = 4 # ^d
