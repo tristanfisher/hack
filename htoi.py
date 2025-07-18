@@ -4,6 +4,9 @@ from typing import Optional
 
 # notes on ncurses:
 #   - clear() will reset a window position, not just clear contents.  https://lists.gnu.org/archive/html/bug-ncurses/2014-01/msg00007.html
+#   - erase clears the contents of an existing window, which is considerably faster
+#   - clrtoeol() can clear to end of line, clrtobot() will clear the bottom of the screen
+#   - writing outside of a subwindow bounds will throw an err -- see try/except guards
 # other notes:
 # - we probably could have done without the input window complexity, instead just redrawing the prompt on current main line
 # known bugs:
@@ -123,7 +126,7 @@ class Htoi:
         if not self.input_window:
             self.debug and self.log("attempted to clear null input_window")
             return
-        self.input_window.clear()
+        self.input_window.erase()
         self.debug and self.log("cleared input window and moved to coordinates [y,x]: [{}, {}]".format(self.result_cursor_y, 0))
         self.input_window.refresh()
 
@@ -180,7 +183,7 @@ class Htoi:
         self.result_window.leaveok(True)  # don't move the cursor to the result window
         # if we previously had an error, the result window will have a background used for errors
         self.result_window.bkgd(' ')
-        self.result_window.clear()
+        self.result_window.erase()
         self.debug and self.log("cleared result window".format(self.result_window_pos_y, 0))
         self.result_window.refresh()
 
