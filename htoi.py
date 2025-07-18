@@ -13,7 +13,7 @@ from typing import Optional
 # - we should stop moving the input window before we hit the max screen size via main and stop painting in position y+1,
 #   which may fix other resizing errors.  scrolling back into the buffer works fine; refactor so main grabs another
 #   line, then handles result_window_move
-#
+# - when window max is hit, prior input is not preserved
 # - resizing from max screen size:
 #       - resizing from cursor 0 to size 3 will "crash" (caught) with no input
 #       - resizing from cursor 0 to cursor 1 with input will "crash" (caught)
@@ -364,7 +364,6 @@ class Htoi:
                     self.input_window.refresh()
                     continue
 
-
                 # KEY_ENTER is some numeric keyboards
                 # macOS sends a \lf with the <return> key
                 # treat these as their numeric inputs (no ord)
@@ -420,13 +419,11 @@ class Htoi:
                     main_window.addstr(self.prompt)
                     # update main cursor location, which is used to calculate where to draw our input box
                     self.main_cursor_y, self.main_cursor_x = main_window.getyx()
-                    self.report_positions()
+                    self.debug and self.report_positions()
                     # main_window.refresh() to redraw our prompt for input
                     main_window.refresh()
 
-
                     # now move input box, clearing out any contents first
-
                     self.manage_input_subwin(self.input_line_index)
                     # this wipe clears any content left in the window post-move,
                     # such as text likely shifted down leftover from our prior input space that was written into by main_window
