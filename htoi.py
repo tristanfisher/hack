@@ -150,22 +150,19 @@ class Htoi:
             self.input_window.mvwin(y, x)  # this line breaks going from 0 back up
         except:
             self.debug and self.log("[EXCEPTION] failed to move input window to [y,x] [{}, {}]".format(y, x))
-        self.input_window.refresh()
 
     def input_window_replace(self, contents):
         self.debug and self.log("replacing input window with contents: {}".format(contents))
         self.input_window_wipe()
         self.input_window.addstr(contents)
-        self.input_window.refresh()
 
-    # wipe clears an input window and refreshes
+    # wipe clears an input window
     def input_window_wipe(self):
         if not self.input_window:
             self.debug and self.log("attempted to clear null input_window")
             return
         self.input_window.erase()
         self.debug and self.log("cleared input window and moved to coordinates [y,x]: [{}, {}]".format(self.result_cursor_y, 0))
-        self.input_window.refresh()
 
     # create a subwindow for error feedback and results
     def new_result_win(self):
@@ -331,6 +328,7 @@ class Htoi:
                     # result not valid anymore
                     self.result_window_wipe()
                     self.input_window_replace(self.current_input)
+                    self.input_window.refresh()
                     continue
 
                 # if i == curses.KEY_LEFT:
@@ -394,6 +392,8 @@ class Htoi:
                     self.input_line_index += 1
                     self.prompt = "{} {}".format(self.input_line_index, self.prompt_suffix)
 
+                    # wipe to clear the window for main_window to write to the previously occupied space
+                    self.input_window_wipe()
                     # write the input that was entered into the main_window to mimic
                     # preserving the input window. we use the input window only for active input
                     main_window.addstr(self.current_input.strip())
@@ -431,8 +431,11 @@ class Htoi:
 
 
                     # now move input box, clearing out any contents first
-                    self.input_window_wipe()
+
                     self.manage_input_subwin(self.input_line_index)
+                    # this wipe clears any content left in the window post-move,
+                    # such as text likely shifted down leftover from our prior input space that was written into by main_window
+                    self.input_window_wipe()
                     self.input_window_move(self.main_cursor_y, len(self.prompt))
                     self.input_window.refresh()
                     self.debug and self.log("result recorded, input window adjusted for new input")
