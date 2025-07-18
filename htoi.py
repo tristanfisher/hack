@@ -10,16 +10,14 @@ from typing import Optional
 # other notes:
 # - we probably could have done without the input window complexity, instead just redrawing the prompt on current main line
 # known bugs:
-# - input stops tracking line number correctly when we go into our scroll buffer
-# - crash expanding out of a 0 height window
-# - resizing from small screens:
+# - we should stop moving the input window before we hit the max screen size via main and stop painting in position y+1,
+#   which may fix other resizing errors.  scrolling back into the buffer works fine; refactor so main grabs another
+#   line, then handles result_window_move
+#
+# - resizing from max screen size:
 #       - resizing from cursor 0 to size 3 will "crash" (caught) with no input
 #       - resizing from cursor 0 to cursor 1 with input will "crash" (caught)
 #   this is likely related to the result expanding beyond getmaxyx() bounds
-# - some bounds violations on mvwin, which may not even move subwindows anymore per "remove  970913 feature for copying subwindow"
-#   https://ncurses.scripts.mit.edu/?p=ncurses.git;a=blobdiff;f=ANNOUNCE;h=11933c5f6d55f4f21e79e0829da3c801365977ce;hp=bbeeb8922d4724c0b184b8de901cfb0d99577bb5;hb=bfe753d2dbaed1587556f1dc89bb14066d075c8c;hpb=027ae42953e3186daed8f3882da73de48291b606
-# - the prompt will slowly get eaten as subwin is positioned at 1,0 (self.input_window = main_window.subwin(1, 0, main_y , len(self.prompt)))
-#   and the line count grows
 RESIZE_ORD = 410 # fires in my iterm2 + tmux when resizing a window
 
 EOF_CHORD = 4 # ^d
@@ -102,7 +100,46 @@ class Htoi:
         # once we hit the window max Y limit, we're no longer able to calculate this based on cursor position
         self.input_line_index = 0
 
-    # input_window_set_relative_cursor moves a cursor for the input window relative to main window cursor subwindow
+    # subwindow moving is not supported, even though mvwin will not complain
+    # ("remove  970913 feature for copying subwindow" https://ncurses.scripts.mit.edu/?p=ncurses.git;a=blobdiff;f=ANNOUNCE;h=11933c5f6d55f4f21e79e0829da3c801365977ce;hp=bbeeb8922d4724c0b184b8de901cfb0d99577bb5;hb=bfe753d2dbaed1587556f1dc89bb14066d075c8c;hpb=027ae42953e3186daed8f3882da73de48291b606)
+    # if the main window has changed and will cause a violation/err on painting, we need to nuke and rebind
+    # e.g. initial prompt of:
+    #   prompt: "9 htoi > "
+    #   idx:     012345678
+    # a subwindow bound at 0 will place the cursor at idx 9
+    # when prompt becomes:
+    #   prompt: "10 htoi > "
+    #   idx:     0123456789
+    # then our subwindow will collide when trying to paint and an error will be thrown
+    #
+    #  manage_input_subwin tracks when our prompt length changes and manages destroying and recreating our subwin
+    def manage_input_subwin(self, line_count):
+        if line_count < 0:
+            # we should not be here
+            return
+
+        # if power of 10, we shouldn't have any decimal
+        if log10(line_count).is_integer():
+            # explicitly delete our subwindow before assignment
+            # a code-dive should take place to see if re-assignment does a clean GC
+            del self.input_window
+            self.new_input_win()
+            self.debug and self.input_window.bkgd(' ', curses.color_pair(2))
+            self.input_window.clear()
+            self.debug and self.log("creating new subwindow of length: {}".format(len(self.prompt)))
+
+    # create a subwindow for user input
+    # this allows us to write user input and overwrite it with keypresses
+    def new_input_win(self):
+        main_y, _ = self.main_window.getyx()
+        # we subwindow on main_y and prompt chars offset.  we track these values to
+        # move the input_window dynamically along with our prompt
+        self.input_window = self.main_window.subwin(1, 0, main_y , len(self.prompt))
+        self.input_window.scrollok(True) # don't crash when exceeding max (e.g. X axis on small width)
+        self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
+        self.input_window.refresh()
+
+    # input_window_move moves a cursor for the input window relative to main window cursor subwindow
     # self.input_window.getparyx() (get parent yx) should report where parent cursor is, but it's tracking self.input_window
     # it's possible that there's a window sync command that simplifies this whole process of tracking the main position with
     def input_window_move(self, y, x=0):
@@ -130,6 +167,15 @@ class Htoi:
         self.debug and self.log("cleared input window and moved to coordinates [y,x]: [{}, {}]".format(self.result_cursor_y, 0))
         self.input_window.refresh()
 
+    # create a subwindow for error feedback and results
+    def new_result_win(self):
+        # single height, no columns.  transparent with no input. after we get the cursor position, we can move this.
+        # if ever the result is moved to the bottom of the screen, remember to leave a row+1 for newline, a column+1 for the cursor
+        self.result_window = self.main_window.subwin(1, 0, 0, 0) # moved when painting results.  initialized at 0,0
+        self.result_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
+        self.result_window.leaveok(True) # leaveok prevents the cursor from jumping to window after write. see also: curses.filter() before initscr()
+        self.result_window.scrollok(True)
+
     # result window positioning
     #
     # if we won't overflow the window, set the result window position to the "next line"
@@ -156,7 +202,7 @@ class Htoi:
             if self.result_window_pos_y < 0:
                 self.result_window_pos_y = 0
 
-            self.debug and self.log("{} [y,x] [{}, {}]".format("[small screen] moving result window to: ", self.result_window_pos_y , 0))
+            self.debug and self.log("{} [y,x] [{}, {}]".format("[max size constraint] moving result window to: ", self.result_window_pos_y , 0))
             # there will be no room for the confirmed result, but max_y -1 will keep the result within the bounds as we scale down
             try:
                 self.result_window.mvwin(self.result_window_pos_y, 0)
@@ -174,7 +220,7 @@ class Htoi:
         self.result_window.addstr(self.error)
         self.result_window.refresh()
 
-    # result_window_clear clears any existing result and preserves the window's last location
+    # result_window_wipe clears any existing result and preserves the window's last location
     # from the last char input
     def result_window_wipe(self):
         if not self.result_window:
@@ -238,25 +284,8 @@ class Htoi:
         # set our initial cursor positions post writing our prompts
         self.main_cursor_y, self.main_cursor_x = main_window.getyx()
 
-
-        # create a subwindow for user input
-        # this allows us to write user input and overwrite it with keypresses
-        main_y, _ = main_window.getyx()
-        # we subwindow on main_y and prompt chars offset.  we track these values to
-        # move the input_window dynamically along with our prompt
-        self.input_window = main_window.subwin(1, 0, main_y , len(self.prompt))
-        self.input_window.scrollok(True) # don't crash when exceeding max (e.g. X axis on small width)
-        self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
-        self.input_window.refresh()
-        self.input_window.bkgd(2)
-
-        # create a subwindow for error feedback and results
-        # single height, no columns.  transparent with no input. after we get the cursor position, we can move this.
-        # if ever the result is moved to the bottom of the screen, remember to leave a row+1 for newline, a column+1 for the cursor
-        self.result_window = main_window.subwin(1, 0, 0, 0) # moved when painting results.  initialized at 0,0
-        self.result_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
-        self.result_window.leaveok(True) # leaveok prevents the cursor from jumping to window after write. see also: curses.filter() before initscr()
-        self.result_window.scrollok(True)
+        self.new_input_win()
+        self.new_result_win()
 
         self.debug and self.input_window.bkgd(' ', curses.color_pair(2))
 
@@ -400,8 +429,10 @@ class Htoi:
                     # main_window.refresh() to redraw our prompt for input
                     main_window.refresh()
 
+
                     # now move input box, clearing out any contents first
                     self.input_window_wipe()
+                    self.manage_input_subwin(self.input_line_index)
                     self.input_window_move(self.main_cursor_y, len(self.prompt))
                     self.input_window.refresh()
                     self.debug and self.log("result recorded, input window adjusted for new input")
@@ -452,11 +483,10 @@ class Htoi:
 
 
 if __name__ == "__main__":
-    import sys
+    # minimal imports until we know the runtime mode
     import argparse
 
     parser = argparse.ArgumentParser("htoi")
-    # parser.add_argument("--debug", help="enable debug logging and visual indicators in interactive mode", type=bool, action='store_true')
     parser.add_argument("--debug", help="enable debug logging and visual indicators in interactive mode", action='store_true')
     parser.add_argument("stdin_data", help="position argument to convert, skipping interactive mode", action="store", type=str, nargs="?")
     args = parser.parse_args()
@@ -473,7 +503,11 @@ if __name__ == "__main__":
         htoi = Htoi(debug=args.debug)
 
         try:
+            # input grouping is kept separate for sake of run speed for non-interactive mode
             import curses
+            from math import log10 # only required in interactive mode for line count
+            from sys import exit # for setting exit code when interactive mode throws an uncaught exception
+
             # curses is imported to support up arrow input
             stdscr = curses.initscr()
             curses.start_color()
@@ -488,4 +522,4 @@ if __name__ == "__main__":
 
             exception_summary = "Could not initialize window: {e_str}".format(e_str=e)
             print(exception_summary)
-            sys.exit(1)
+            exit(1)
