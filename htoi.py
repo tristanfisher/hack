@@ -266,8 +266,6 @@ class Htoi:
 
         self.main_cursor_y, self.main_cursor_x = main_window.getyx()
 
-        # TODO: there is a bug here in counting line index as the cursor stops advancing when
-        #       we hit the bottom of the scroll
         # set the input_line_index to where we can start accepting input
         # the input_line_index does not track with cursor as result gets painted after the prompt/input
         self.input_line_index += self.main_cursor_y
@@ -386,9 +384,6 @@ class Htoi:
                     if self.current_input.strip() == "":
                         continue
 
-                    # TODO:
-                    #   we're drawing a new line, update input line counter in prompt
-                    #   note that this starts failing when we hit the bottom of the window
                     self.input_line_index += 1
                     self.prompt = "{} {}".format(self.input_line_index, self.prompt_suffix)
 
