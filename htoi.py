@@ -2,7 +2,8 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-# notes on ncurses: clear() will reset a window position, not just clear contents
+# notes on ncurses:
+#   - clear() will reset a window position, not just clear contents.  https://lists.gnu.org/archive/html/bug-ncurses/2014-01/msg00007.html
 # other notes:
 # - we probably could have done without the input window complexity, instead just redrawing the prompt on current main line
 # known bugs:
@@ -12,6 +13,10 @@ from typing import Optional
 #       - resizing from cursor 0 to size 3 will "crash" (caught) with no input
 #       - resizing from cursor 0 to cursor 1 with input will "crash" (caught)
 #   this is likely related to the result expanding beyond getmaxyx() bounds
+# - some bounds violations on mvwin, which may not even move subwindows anymore per "remove  970913 feature for copying subwindow"
+#   https://ncurses.scripts.mit.edu/?p=ncurses.git;a=blobdiff;f=ANNOUNCE;h=11933c5f6d55f4f21e79e0829da3c801365977ce;hp=bbeeb8922d4724c0b184b8de901cfb0d99577bb5;hb=bfe753d2dbaed1587556f1dc89bb14066d075c8c;hpb=027ae42953e3186daed8f3882da73de48291b606
+# - the prompt will slowly get eaten as subwin is positioned at 1,0 (self.input_window = main_window.subwin(1, 0, main_y , len(self.prompt)))
+#   and the line count grows
 RESIZE_ORD = 410 # fires in my iterm2 + tmux when resizing a window
 
 EOF_CHORD = 4 # ^d
