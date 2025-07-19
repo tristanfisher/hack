@@ -232,7 +232,8 @@ class Htoi:
                     self.current_input = self.last_input
                     # feedback for input not relevant anymore
                     self.feedback_window.erase()
-                    self.feedback_window.addstr(hex_to_dec_str(self.current_input), curses.A_STANDOUT)
+                    result = hex_to_dec_str(self.current_input)
+                    self.feedback_window.addstr(result, curses.A_STANDOUT)
                     self.feedback_window.refresh()
 
                     # refresh input_window last so cursor returns to user input
