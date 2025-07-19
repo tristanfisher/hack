@@ -46,6 +46,14 @@ def hex_to_dec(input_value):
 def hex_to_dec_str(input_value):
     return str(hex_to_dec(input_value))
 
+
+class WindowTooSmallException(Exception):
+    def __init__(self, window_size, required_size):
+        self.window_size = window_size
+        self.required_size = required_size
+        super().__init__("window size {} is under required height of {} [0 indexed]".format(self.window_size, self.required_size))
+
+
 # Htoi is a ncurses application for converting from hex to decimal
 # note that an intentional chain of `if` statements are used instead of
 # python 3.10's switch/match for purposes of wider availability.
@@ -61,6 +69,8 @@ def hex_to_dec_str(input_value):
 # history window is reverse-order list rendering (most recent at top)
 #
 class Htoi:
+
+
     def __init__(self, debug=False):
         self.debug=debug
         self.bg_red = 1
@@ -74,6 +84,8 @@ class Htoi:
         self.feedback_window: Optional["curses._CursesWindow"] = None  # window bound in main
         self.history_window: Optional["curses._CursesWindow"] = None  # window bound in main
 
+        # window positions are 0 indexed
+        # todo: dynamically adjust this to equal feedback_window_start position
         self.feedback_window_start_y = 1
         self.history_window_start_y = 2
 
@@ -82,11 +94,15 @@ class Htoi:
         # storing error in the function scope allows
         # for cheaply checking error status instead of dealing with a window object
         self.error = ""
+        # history is tracked for more control over rendering than only dumping to screen
+        from collections import deque # used for results instead of linear time lists
+        self.history = deque([])
 
 
     def input_window_new(self):
         main_y, main_x = self.main_window.getyx()
         # begin immediately following main win, with 1 line, 0 columns
+        # the 1 line statement is to prevent a carriage return from creating a new row in our window
         self.input_window = self.main_window.subwin(1, 0, main_y, main_x)
         self.input_window.scrollok(True) # while we don't expect to draw a newline, we could wrap on the X axis
         self.input_window.keypad(True) # keypad(True) to differentiate between up arrow and 'A'
@@ -125,16 +141,20 @@ class Htoi:
         main_max_y, main_max_x = self.main_window.getmaxyx()
         main_cursor_y, main_cursor_x = self.main_window.getyx()
 
-        history_max_y, history_max_x = self.history_window.getmaxyx()
-        history_cursor_y, history_cursor_x = self.history_window.getyx()
-
         input_max_y, input_max_x = self.input_window.getmaxyx()
         input_cursor_y, input_cursor_x = self.input_window.getmaxyx()
 
+        feedback_max_y, feedback_max_x = self.feedback_window.getmaxyx()
+        feedback_cursor_y, feedback_cursor_x = self.feedback_window.getmaxyx()
+
+        history_max_y, history_max_x = self.history_window.getmaxyx()
+        history_cursor_y, history_cursor_x = self.history_window.getyx()
+
         # max, cursor formatted for sake of fixed width / log alignment
         self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("MAIN: max", main_max_y, main_max_x, main_cursor_y, main_cursor_x))
-        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("HISTORY: max", history_max_y , history_max_x, history_cursor_y, history_cursor_x))
         self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("INPUT: max", input_max_y, input_max_x, input_cursor_y, input_cursor_x))
+        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("FEEDBACK: max", feedback_max_y, feedback_max_x, feedback_cursor_y, feedback_cursor_x))
+        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("HISTORY: max", history_max_y , history_max_x, history_cursor_y, history_cursor_x))
 
 
     # curses import does not include underscored name
@@ -155,10 +175,19 @@ class Htoi:
         main_window.leaveok(True)
         main_window.refresh()
 
+        minimum_required_y = max(self.feedback_window_start_y, self.history_window_start_y)
+        starting_max_y, _ = main_window.getmaxyx()
+        if starting_max_y - 1 < minimum_required_y:
+            raise WindowTooSmallException(starting_max_y - 1 , minimum_required_y)
+
         self.input_window_new()
         self.feedback_window_new()
         self.history_window_new()
 
+        self.debug and self.feedback_window.addstr("feedback window")
+        self.debug and self.history_window.addstr("history window")
+
+        # we discover if windows / layouts failed at refresh time
         self.feedback_window.refresh()
         self.history_window.refresh()
         self.input_window.refresh()
@@ -172,12 +201,19 @@ class Htoi:
                 i = self.input_window.getch()
                 self.input_window.refresh()
 
+                # if our screen is too small for output, don't render
+                main_max_y, _ = main_window.getmaxyx()
+                if main_max_y - 1< minimum_required_y:
+                    raise WindowTooSmallException(starting_max_y - 1 , minimum_required_y)
+
                 # ^C exits.  let ^D quit, let "q" quit
                 if i == EOF_CHORD or i == KEY_Q:
                     curses.endwin()
                     return
 
                 if i == RESIZE_ORD:
+                    # todo: endwin and resize
+                    self.debug and self.log("resizing history window required")
                     continue
 
                 # if input is up allow, set user input to the last input
@@ -263,11 +299,15 @@ class Htoi:
                         continue
 
                     result = hex_to_dec_str(self.current_input)
-                    result_history_output = "{} => {}\n".format(self.current_input, result)
+                    result_history_output = "{} => {}".format(self.current_input, result)
 
+                    # erase existing output and replace with contents of self.history,
+                    # which is sorted most recent to least recent
+                    self.history.appendleft(result_history_output)
+                    self.history_window.erase()
                     self.feedback_window.erase()
                     self.input_window.erase()
-                    self.history_window.addstr(result_history_output)
+                    self.history_window.addstr("\n".join(self.history))
 
                     # with output provided, now store last result for recall
                     self.last_input = self.current_input
@@ -336,11 +376,12 @@ if __name__ == "__main__":
 
         try:
             # input grouping is kept separate for sake of run speed for non-interactive mode
+            # collections's deque is imported inside the class. the import gets lost for this module.
             import curses
             from datetime import datetime, timezone
             from typing import Optional
             from math import log10 # only required in interactive mode for line count
-            from sys import exit # for setting exit code when interactive mode throws an uncaught exception
+            from sys import exit, stderr # for setting exit code when interactive mode throws an uncaught exception
 
             # curses is imported to support up arrow input
             stdscr = curses.initscr()
