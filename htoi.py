@@ -214,6 +214,21 @@ class Htoi:
                 if i == RESIZE_ORD:
                     # todo: endwin and resize
                     self.debug and self.log("resizing history window required")
+                    self.debug and self.report_positions()
+
+                    # refresh will throw:
+                    # Python(97765,0x2094ddf00) malloc: Incorrect checksum for freed object 0x11b03ca00: probably modified after being freed.
+                    # Corrupt value: 0x3200000000
+                    # Python(97765,0x2094ddf00) malloc: *** set a breakpoint in malloc_error_break to debug
+                    #
+                    # when inputting and re-sizing while inputting text. if you input text, then scroll beyond, then within buffer, you can force this.
+                    # this happens even with a clear() instead of an erase
+                    self.history_window.erase()
+                    addressable_history = "\n".join(self.history)
+                    self.history_window.addstr(addressable_history)
+                    self.history_window.refresh()
+                    self.history_window.clear()
+
                     continue
 
                 # if input is up allow, set user input to the last input
@@ -308,7 +323,8 @@ class Htoi:
                     self.history_window.erase()
                     self.feedback_window.erase()
                     self.input_window.erase()
-                    self.history_window.addstr("\n".join(self.history))
+                    addressable_history = "\n".join(self.history)
+                    self.history_window.addstr(addressable_history)
 
                     # with output provided, now store last result for recall
                     self.last_input = self.current_input
