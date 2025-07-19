@@ -121,6 +121,22 @@ class Htoi:
             time_marker = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             f.write("[{timeMarker}] {msg}\n".format(timeMarker=time_marker, msg=message))
 
+    def report_positions(self):
+        main_max_y, main_max_x = self.main_window.getmaxyx()
+        main_cursor_y, main_cursor_x = self.main_window.getyx()
+
+        history_max_y, history_max_x = self.history_window.getmaxyx()
+        history_cursor_y, history_cursor_x = self.history_window.getyx()
+
+        input_max_y, input_max_x = self.input_window.getmaxyx()
+        input_cursor_y, input_cursor_x = self.input_window.getmaxyx()
+
+        # max, cursor formatted for sake of fixed width / log alignment
+        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("MAIN: max", main_max_y, main_max_x, main_cursor_y, main_cursor_x))
+        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("HISTORY: max", history_max_y , history_max_x, history_cursor_y, history_cursor_x))
+        self.log("{:<12} [y,x] [{}, {}] cursor: [{}, {}]".format("INPUT: max", input_max_y, input_max_x, input_cursor_y, input_cursor_x))
+
+
     # curses import does not include underscored name
     # type annotation used for IDE hints
     def main(self, main_window: "curses._CursesWindow") -> None:
@@ -150,7 +166,7 @@ class Htoi:
         self.debug and self.log("### window initialized ###")
         while True:
             self.debug and self.log("looping for input")
-
+            self.debug and self.report_positions()
             try:
                 # loop for next input
                 i = self.input_window.getch()
