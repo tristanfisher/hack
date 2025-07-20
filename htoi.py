@@ -138,15 +138,19 @@ class Htoi:
             f.write("[{timeMarker}] {msg}\n".format(timeMarker=time_marker, msg=message))
 
     def report_positions(self):
+        self.debug and self.log("reading main window coordinates")
         main_max_y, main_max_x = self.main_window.getmaxyx()
         main_cursor_y, main_cursor_x = self.main_window.getyx()
 
+        self.debug and self.log("reading input window coordinates")
         input_max_y, input_max_x = self.input_window.getmaxyx()
         input_cursor_y, input_cursor_x = self.input_window.getmaxyx()
 
+        self.debug and self.log("reading feedback window coordinates")
         feedback_max_y, feedback_max_x = self.feedback_window.getmaxyx()
         feedback_cursor_y, feedback_cursor_x = self.feedback_window.getmaxyx()
 
+        self.debug and self.log("reading history window coordinates")
         history_max_y, history_max_x = self.history_window.getmaxyx()
         history_cursor_y, history_cursor_x = self.history_window.getyx()
 
@@ -197,8 +201,10 @@ class Htoi:
             self.debug and self.log("looping for input")
             self.debug and self.report_positions()
             try:
+                self.debug and self.log("waiting for char")
                 # loop for next input
                 i = self.input_window.getch()
+                self.debug and self.log("read char")
                 self.input_window.refresh()
 
                 # if our screen is too small for output, don't render
@@ -213,7 +219,7 @@ class Htoi:
 
                 if i == RESIZE_ORD:
                     # todo: endwin and resize
-                    self.debug and self.log("resizing history window required")
+                    self.debug and self.log("resize => history window resize required")
                     self.debug and self.report_positions()
 
                     # refresh will throw:
@@ -223,10 +229,19 @@ class Htoi:
                     #
                     # when inputting and re-sizing while inputting text. if you input text, then scroll beyond, then within buffer, you can force this.
                     # this happens even with a clear() instead of an erase
+                    self.debug and self.log("resize => erasing history window")
                     self.history_window.erase()
-                    addressable_history = "\n".join(self.history)
-                    self.history_window.addstr(addressable_history)
+
+                    # UAF?
+                    # addressable_history = "\n".join(self.history)
+                    # self.history_window.addstr(addressable_history)
+                    self.debug and self.log("resize => re-writing history")
+                    for res in self.history:
+                        self.history_window.addstr(res + "\n")
+
+                    self.debug and self.log("resize => refreshing input")
                     self.history_window.refresh()
+                    self.debug and self.log("resize => clearing")
                     self.history_window.clear()
 
                     continue
@@ -269,6 +284,7 @@ class Htoi:
 
                 # handle backspace
                 if i in (curses.KEY_BACKSPACE, KEY_BACKSPACE, KEY_DELETE):
+                    self.debug and self.log("handling backspace")
                     if len(self.current_input) == 0:
                         self.debug and self.log("no text left to delete")
                         continue
@@ -294,6 +310,7 @@ class Htoi:
                 # macOS sends a \lf with the <return> key
                 # treat these as their numeric inputs (no ord)
                 if i == curses.KEY_ENTER or i == KEY_ENTER:
+                    self.debug and self.log("read enter key")
                     if len(self.error) > 0:
                         self.error = ""
                         # clear window contents and refresh to update it
@@ -323,8 +340,15 @@ class Htoi:
                     self.history_window.erase()
                     self.feedback_window.erase()
                     self.input_window.erase()
-                    addressable_history = "\n".join(self.history)
-                    self.history_window.addstr(addressable_history)
+
+
+                    self.debug and self.log("writing history")
+                    for res in self.history:
+                        self.history_window.addstr(res + "\n")
+
+                    # UAF exists here?
+                    # addressable_history = "\n".join(self.history)
+                    # self.history_window.addstr(addressable_history)
 
                     # with output provided, now store last result for recall
                     self.last_input = self.current_input
@@ -358,6 +382,7 @@ class Htoi:
                 self.current_input += i_chr
                 self.input_window.addstr(i_chr)
 
+                self.debug and self.log("updating feedback")
                 result = hex_to_dec_str(self.current_input)
                 self.feedback_window.erase()
                 self.feedback_window.addstr(result, curses.A_STANDOUT)
