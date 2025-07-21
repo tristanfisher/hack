@@ -96,7 +96,7 @@ class Htoi:
         self.error = ""
         # history is tracked for more control over rendering than only dumping to screen
         from collections import deque # used for results instead of linear time lists
-        self.history = deque([])
+        self.history = deque([], maxlen=250)
 
 
     def input_window_new(self):
@@ -142,15 +142,12 @@ class Htoi:
         main_max_y, main_max_x = self.main_window.getmaxyx()
         main_cursor_y, main_cursor_x = self.main_window.getyx()
 
-        self.debug and self.log("reading input window coordinates")
         input_max_y, input_max_x = self.input_window.getmaxyx()
         input_cursor_y, input_cursor_x = self.input_window.getmaxyx()
 
-        self.debug and self.log("reading feedback window coordinates")
         feedback_max_y, feedback_max_x = self.feedback_window.getmaxyx()
         feedback_cursor_y, feedback_cursor_x = self.feedback_window.getmaxyx()
 
-        self.debug and self.log("reading history window coordinates")
         history_max_y, history_max_x = self.history_window.getmaxyx()
         history_cursor_y, history_cursor_x = self.history_window.getyx()
 
@@ -201,25 +198,28 @@ class Htoi:
             self.debug and self.log("looping for input")
             self.debug and self.report_positions()
             try:
-                self.debug and self.log("waiting for char")
+                # if our screen is too small for output, don't render
+                main_max_y, main_max_x = main_window.getmaxyx()
+                if main_max_y - 1 < minimum_required_y:
+                    raise WindowTooSmallException(starting_max_y - 1 , minimum_required_y)
+
                 # loop for next input
                 i = self.input_window.getch()
-                self.debug and self.log("read char")
+                self.debug and self.log("read char: {}".format(i))
                 self.input_window.refresh()
-
-                # if our screen is too small for output, don't render
-                main_max_y, _ = main_window.getmaxyx()
-                if main_max_y - 1< minimum_required_y:
-                    raise WindowTooSmallException(starting_max_y - 1 , minimum_required_y)
 
                 # ^C exits.  let ^D quit, let "q" quit
                 if i == EOF_CHORD or i == KEY_Q:
                     curses.endwin()
                     return
 
-                if i == RESIZE_ORD:
-                    # todo: endwin and resize
-                    self.debug and self.log("resize => history window resize required")
+                if i == RESIZE_ORD or i == curses.KEY_RESIZE:
+                    # todo: this probably requires a window.resize in addition to curses.resizeterm
+
+                    new_y, new_x = main_window.getmaxyx()
+
+                    curses.resize_term(new_y, new_x)
+                    self.debug and self.log("windows refreshed after resize")
                     self.debug and self.report_positions()
 
                     # refresh will throw:
@@ -232,6 +232,10 @@ class Htoi:
                     self.debug and self.log("resize => erasing history window")
                     self.history_window.erase()
 
+                    del self.history_window
+                    # create a new window instead of trying to
+                    self.history_window_new()
+
                     # UAF?
                     # addressable_history = "\n".join(self.history)
                     # self.history_window.addstr(addressable_history)
@@ -241,8 +245,10 @@ class Htoi:
 
                     self.debug and self.log("resize => refreshing input")
                     self.history_window.refresh()
-                    self.debug and self.log("resize => clearing")
-                    self.history_window.clear()
+                    self.main_window.refresh()
+
+                    self.debug and self.log("resize => history window resize complete")
+                    self.debug and self.report_positions()
 
                     continue
 
@@ -337,14 +343,22 @@ class Htoi:
                     # erase existing output and replace with contents of self.history,
                     # which is sorted most recent to least recent
                     self.history.appendleft(result_history_output)
+
                     self.history_window.erase()
                     self.feedback_window.erase()
                     self.input_window.erase()
 
-
                     self.debug and self.log("writing history")
+
+                    # break when we hit our window limit vs adding off-screen
+                    # this does not prevent a crash on subwindow buffers
+                    i = 0
+                    history_max_y, _ = self.history_window.getmaxyx()
                     for res in self.history:
+                        i += 1
                         self.history_window.addstr(res + "\n")
+                        if i >= history_max_y:
+                            break
 
                     # UAF exists here?
                     # addressable_history = "\n".join(self.history)
